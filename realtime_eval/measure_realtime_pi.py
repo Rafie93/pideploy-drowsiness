@@ -150,7 +150,7 @@ def main():
 
     net = bench_network(load_endpoint(), args.bench_network) if args.bench_network else None
 
-    cap = RpicamCapture()
+    cap = WebcamCapture()
     interp_e, ie, oe = load_tflite(args.eye_model)
     interp_m, im, om = load_tflite(args.mouth_model)
     face_det = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.5)
