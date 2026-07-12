@@ -138,8 +138,14 @@ class _RpicamCapture:
         self._proc.terminate()
         self._proc.wait()
 
-print("Kamera: rpicam-vid pipe (Arducam/IMX708 optimized)")
-cap = _RpicamCapture(640, 480)
+print("Kamera: USB webcam /dev/video0 (OpenCV V4L2 - LUMINOUS C50)")
+cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FPS, 15)
+if not cap.isOpened():
+    print("[ERROR] Gagal membuka webcam USB /dev/video0")
+    exit(1)
 
 # =========================
 # 2. SETUP MODEL TFLITE
