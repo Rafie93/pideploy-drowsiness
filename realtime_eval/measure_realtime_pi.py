@@ -33,7 +33,6 @@ from __future__ import annotations
 import argparse
 import csv
 import os
-import subprocess
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -71,34 +70,22 @@ IMG_SIZE = 160
 MIN_CONF = 0.75
 
 
-class RpicamCapture:
-    """Identik dengan _RpicamCapture di app2_rpi.py (rpicam-vid MJPEG pipe)."""
-    def __init__(self, width=640, height=480, framerate=15):
-        subprocess.run(["pkill", "-f", "rpicam-vid"], capture_output=True)
-        time.sleep(0.2)
-        cmd = ["rpicam-vid", "-t", "0", "--codec", "mjpeg", "--nopreview",
-               "--width", str(width), "--height", str(height),
-               "--framerate", str(framerate), "--mode", "1536:864:10:P", "-o", "-"]
-        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        self._buf = b""
+class WebcamCapture:
+    """Identik dengan capture di app.py: USB webcam /dev/video0 (OpenCV V4L2)."""
+    def __init__(self, index=0, width=640, height=480, fps=15):
+        self._cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self._cap.set(cv2.CAP_PROP_FPS, fps)
+        if not self._cap.isOpened():
+            raise SystemExit(f"[ERROR] Gagal membuka webcam USB /dev/video{index} "
+                             "(pastikan tidak dipakai proses lain, mis. app.py).")
 
     def read(self):
-        while True:
-            if self._proc.poll() is not None:
-                return False, None
-            chunk = self._proc.stdout.read(8192)
-            if not chunk:
-                return False, None
-            self._buf += chunk
-            s = self._buf.find(b"\xff\xd8"); e = self._buf.find(b"\xff\xd9")
-            if s != -1 and e != -1 and e > s:
-                jpg = self._buf[s:e + 2]; self._buf = self._buf[e + 2:]
-                frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
-                if frame is not None:
-                    return True, frame
+        return self._cap.read()
 
     def release(self):
-        self._proc.terminate(); self._proc.wait()
+        self._cap.release()
 
 
 def load_tflite(path):
