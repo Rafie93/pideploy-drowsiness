@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import subprocess
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -70,22 +71,61 @@ IMG_SIZE = 160
 MIN_CONF = 0.75
 
 
-class WebcamCapture:
-    """Identik dengan capture di app.py: USB webcam /dev/video0 (OpenCV V4L2)."""
-    def __init__(self, index=0, width=640, height=480, fps=15):
-        self._cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self._cap.set(cv2.CAP_PROP_FPS, fps)
-        if not self._cap.isOpened():
-            raise SystemExit(f"[ERROR] Gagal membuka webcam USB /dev/video{index} "
-                             "(pastikan tidak dipakai proses lain, mis. app.py).")
+class RpicamCapture:
+    """Pipe MJPEG dari rpicam-vid (kamera CSI Pi). Berbeda dari _RpicamCapture di
+    app2_rpi.py: --mode TIDAK dipaksa (mode '1536:864:10:P' hanya valid untuk
+    sensor IMX708/Camera Module 3 dan membuat rpicam-vid mati di kamera lain),
+    stderr rpicam DISIMPAN ke file untuk diagnosa, dan ada jeda inisialisasi sensor."""
+    def __init__(self, width=640, height=480, framerate=15, mode=None, stderr_log=None):
+        subprocess.run(["pkill", "-f", "rpicam-vid"], capture_output=True)
+        time.sleep(0.3)
+        cmd = ["rpicam-vid", "-t", "0", "--codec", "mjpeg", "--nopreview",
+               "--width", str(width), "--height", str(height),
+               "--framerate", str(framerate), "-o", "-"]
+        if mode:
+            cmd += ["--mode", mode]
+        self._errpath = stderr_log
+        self._err = open(stderr_log, "wb") if stderr_log else subprocess.DEVNULL
+        print(f"[camera] rpicam-vid: {' '.join(cmd)}", flush=True)
+        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=self._err)
+        self._buf = b""
+        time.sleep(1.0)  # beri sensor waktu inisialisasi sebelum baca pertama
 
     def read(self):
-        return self._cap.read()
+        while True:
+            if self._proc.poll() is not None:
+                return False, None
+            chunk = self._proc.stdout.read(8192)
+            if not chunk:
+                return False, None
+            self._buf += chunk
+            s = self._buf.find(b"\xff\xd8"); e = self._buf.find(b"\xff\xd9")
+            if s != -1 and e != -1 and e > s:
+                jpg = self._buf[s:e + 2]; self._buf = self._buf[e + 2:]
+                frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+                if frame is not None:
+                    return True, frame
 
     def release(self):
-        self._cap.release()
+        self._proc.terminate(); self._proc.wait()
+        if self._err is not subprocess.DEVNULL:
+            self._err.close()
+
+
+class UsbCapture:
+    """Webcam USB via OpenCV (untuk kamera ke-2 di protokol, atau bila CSI bermasalah)."""
+    def __init__(self, index=0, width=640, height=480):
+        self.cap = cv2.VideoCapture(index)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if not self.cap.isOpened():
+            raise SystemExit(f"[ERROR] webcam USB index {index} tidak terbuka.")
+
+    def read(self):
+        return self.cap.read()
+
+    def release(self):
+        self.cap.release()
 
 
 def load_tflite(path):
@@ -146,11 +186,21 @@ def main():
     ap.add_argument("--out_csv", default=os.path.join(THIS_DIR, "realtime_baseline_results.csv"))
     ap.add_argument("--eye_model", default=os.path.join(PROJECT_ROOT, "model_eye_mobilenet.tflite"))
     ap.add_argument("--mouth_model", default=os.path.join(PROJECT_ROOT, "model_mouth_mobilenet.tflite"))
+    ap.add_argument("--camera", choices=["picam", "usb"], default="picam",
+                    help="picam = kamera CSI (rpicam-vid); usb = webcam USB (OpenCV)")
+    ap.add_argument("--camera_index", type=int, default=0, help="index webcam USB (--camera usb)")
+    ap.add_argument("--rpicam_mode", default="",
+                    help="mode sensor rpicam mis. '1536:864:10:P' (KOSONGKAN untuk mode default; "
+                         "mode spesifik hanya valid untuk sensor tertentu spt IMX708)")
     args = ap.parse_args()
 
     net = bench_network(load_endpoint(), args.bench_network) if args.bench_network else None
 
-    cap = WebcamCapture()
+    if args.camera == "usb":
+        cap = UsbCapture(index=args.camera_index)
+    else:
+        rpicam_log = os.path.join(THIS_DIR, "rpicam_stderr.log")
+        cap = RpicamCapture(mode=(args.rpicam_mode or None), stderr_log=rpicam_log)
     interp_e, ie, oe = load_tflite(args.eye_model)
     interp_m, im, om = load_tflite(args.mouth_model)
     face_det = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.5)
@@ -203,6 +253,24 @@ def main():
                                  eye_conf=round(eye_conf, 4), mouth_label=mouth_label,
                                  mouth_conf=round(mouth_conf, 4)))
     cap.release()
+
+    if n_frames == 0:
+        print("\n[DIAGNOSA] 0 frame tertangkap — kamera tidak menghasilkan gambar.")
+        if args.camera == "picam":
+            log = os.path.join(THIS_DIR, "rpicam_stderr.log")
+            if os.path.exists(log):
+                print(f"  Pesan error rpicam-vid ({log}):")
+                with open(log, "rb") as f:
+                    tail = f.read()[-800:].decode(errors="replace").strip()
+                for line in tail.splitlines()[-12:]:
+                    print("    " + line)
+            print("  Coba: (a) tes manual  rpicam-vid -t 2000 --codec mjpeg --nopreview "
+                  "--width 640 --height 480 -o /tmp/t.mjpeg")
+            print("        (b) jika kamera BUKAN IMX708, jangan pakai --rpicam_mode")
+            print("        (c) atau pakai webcam USB:  --camera usb --camera_index 0")
+        else:
+            print("  Webcam USB tidak memberi frame — cek index (--camera_index) & koneksi.")
+        raise SystemExit(1)
 
     dur = time.time() - t_start
     fps = n_frames / dur if dur else 0.0
