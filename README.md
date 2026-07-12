@@ -1,7 +1,7 @@
 # PiDeploy — Deploy & Menjalankan di Raspberry Pi 5
 
 Folder ini berisi **semua** yang perlu di-upload ke Raspberry Pi 5 untuk:
-1. menjalankan aplikasi deteksi kantuk live (`app2_rpi.py`), dan
+1. menjalankan aplikasi deteksi kantuk live (`app.py`), dan
 2. mengumpulkan data evaluasi real-time yang diminta reviewer (latensi on-device,
    akurasi multi-partisipan, sensitivity ambang).
 
@@ -13,7 +13,7 @@ Folder ini berisi **semua** yang perlu di-upload ke Raspberry Pi 5 untuk:
 
 ```
 PiDeploy/
-├── app2_rpi.py                     # aplikasi alert live (deployment sebenarnya)
+├── app.py                     # aplikasi alert live (deployment sebenarnya)
 ├── model_eye_mobilenet.tflite      # model mata (augmented, sama dgn yg dipakai paper)
 ├── model_mouth_mobilenet.tflite    # model mulut (augmented)
 ├── .env.example                    # template konfigurasi -> salin jadi .env
@@ -172,7 +172,7 @@ python3 realtime_eval/score_annotated_session.py --selftest
 ```bash
 cd ~/PiDeploy
 source ~/pivenv/bin/activate
-python3 app2_rpi.py
+python3 app.py
 ```
 
 Berjalan headless otomatis bila tidak ada DISPLAY; event dikirim ke
@@ -212,5 +212,5 @@ pindahkan REQ-2.1/2.3/2.4/1.6 ke ✅.
   yang baru ke sini sebelum deploy.
 - `measure_realtime_pi.py` belum pernah dijalankan di Pi asli dari sisi
   pengembangan (tidak ada hardware Pi di lingkungan build) — perlakukan smoke test
-  Langkah 4 sebagai eksekusi pertamanya. Kode-nya meniru pipeline `app2_rpi.py`
+  Langkah 4 sebagai eksekusi pertamanya. Kode-nya meniru pipeline `app.py`
   yang sudah terbukti (rpicam → MediaPipe → TFLite).
