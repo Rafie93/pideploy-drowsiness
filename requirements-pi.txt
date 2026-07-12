@@ -1,0 +1,23 @@
+# Dependencies untuk Raspberry Pi 5 (Raspberry Pi OS Bookworm 64-bit).
+# Instal di dalam virtualenv:  pip install -r requirements-pi.txt
+#
+# CATATAN runtime TFLite: pilih SALAH SATU (urutan preferensi di Pi):
+#   1) tflite-runtime         (paling ringan, ideal di Pi)
+#   2) ai-edge-litert         (pengganti modern tflite-runtime)
+#   3) tensorflow             (paling berat; hanya bila 1 & 2 gagal)
+# app2_rpi.py & measure_realtime_pi.py mencoba ketiganya berurutan.
+
+numpy
+opencv-python
+mediapipe
+psutil
+pandas
+scipy
+
+# --- pilih salah satu runtime TFLite (uncomment satu) ---
+tflite-runtime
+# ai-edge-litert
+# tensorflow
+
+# rpicam-vid berasal dari paket sistem, BUKAN pip:
+#   sudo apt install -y rpicam-apps

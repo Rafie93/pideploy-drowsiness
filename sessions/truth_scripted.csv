@@ -1,0 +1,5 @@
+event_type,t_start_s,t_end_s
+yawn_alert,88,95
+microsleep,45,50
+microsleep,110,120
+critical,125,130
